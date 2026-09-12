@@ -1,0 +1,9 @@
+# 編譯產物
+build/
+build_offset/
+
+# PC 端測試的產物（test/build_test.bat 會就地產生）
+*.obj
+*.exe
+*.pdb
+*.ilk
