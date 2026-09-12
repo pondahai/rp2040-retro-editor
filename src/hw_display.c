@@ -1,11 +1,24 @@
 #include "hw_display.h"
+#include "glyph.h"
 #include "lcd.h"
 #include <string.h>
 #include <stdio.h>
 
+/* 版面(格子是 8 寬 x 16 高,見 core/glyph.h):
+ *
+ *     row 0        狀態列
+ *     row 1..13    內文
+ *     row 14       注音組字與候選字
+ *
+ * 不用 lcd.c 的 8x8 文字模式 —— 中文字是 16 高,跟那個格線對不上。
+ * 改走它的像素模式(lcd_blit),一次送一格 8x16。仍然沒有 framebuffer:
+ * 320x240x16bpp 是 150KB,而且 DMA 留在半路會弄髒交棒後的下一個專題。
+ */
 #define ROW_STATUS 0
 #define ROW_TEXT   1
-#define ROW_CAND   (LCD_ROWS - 1)
+#define ROW_CAND   (ED_ROWS - 1)
+
+#define CELL_PX    (GLYPH_W * GLYPH_H)      /* 8 x 16 = 128 像素 */
 
 void hw_display_init(void)
 {
@@ -13,67 +26,95 @@ void hw_display_init(void)
     lcd_clear(C_BLACK);
 }
 
-/* 中文字的佔位方塊。字型接上之前，至少讓使用者看得到「這裡有一個字」，
- * 而且寬度要跟真的中文字一樣是兩格 —— 不然游標位置會對不上。 */
-static void put_cjk_box(int col, int row, uint16_t fg)
+/* 畫一格。RGB565 big-endian —— 跟 ILI9341 的線上格式一致。 */
+static void put_cell(int col, int row, glyph_ref g, int half,
+                     uint16_t fg, uint16_t bg)
 {
-    lcd_fill_rect(col * 8 + 1, row * 8 + 1, 14, 6, fg);
+    uint8_t px[CELL_PX * 2];
+    int i = 0;
+
+    if (half) {
+        /* 寬字的右半:同一個 glyph,換一種取法 */
+        if (g.kind == GL_WIDE_LEAD) g.kind = GL_WIDE_TRAIL;
+        else if (g.kind == GL_TOFU_LEAD) g.kind = GL_TOFU_TRAIL;
+    }
+
+    for (int y = 0; y < GLYPH_H; y++) {
+        uint8_t slice = glyph_slice(g, y);
+        for (int x = 0; x < GLYPH_W; x++) {
+            uint16_t c = (slice & 1) ? fg : bg;
+            slice >>= 1;                     /* bit 0 是最左邊 */
+            px[i++] = (uint8_t)(c >> 8);
+            px[i++] = (uint8_t)(c & 0xff);
+        }
+    }
+
+    lcd_blit_begin(col * GLYPH_W, row * GLYPH_H, GLYPH_W, GLYPH_H);
+    lcd_blit(px, sizeof px);
 }
 
-/* 畫一行 UTF-8。回傳畫了幾格。 */
+/* 畫一段 UTF-8,回傳畫到第幾格。 */
 static int draw_utf8(int col, int row, const char *s, size_t len,
                      uint16_t fg, uint16_t bg)
 {
     size_t i = 0;
-    while (i < len && col < LCD_COLS) {
-        unsigned char c = (unsigned char)s[i];
-        int seq = utf8_seq_len(c);
-        if (seq == 1) {
-            lcd_putc(col, row, (char)c, fg, bg);
-            col += 1;
-        } else {
-            put_cjk_box(col, row, fg);
-            col += 2;
-        }
-        i += (size_t)seq;
+    while (i < len && col < ED_COLS) {
+        uint32_t cp;
+        int n = utf8_decode(s + i, (int)(len - i), &cp);
+        glyph_ref g;
+
+        if (n <= 0) break;
+        i += (size_t)n;
+        if (cp == '\n') break;
+
+        g = glyph_find(cp);
+        put_cell(col++, row, g, 0, fg, bg);
+        if (glyph_cells(cp) == 2 && col < ED_COLS)
+            put_cell(col++, row, g, 1, fg, bg);
     }
     return col;
 }
 
+/* 把一列剩下的格子填成底色,清掉上一次的殘字。 */
+static void fill_rest(int col, int row, uint16_t bg)
+{
+    if (col < ED_COLS)
+        lcd_fill_rect(col * GLYPH_W, row * GLYPH_H,
+                      (ED_COLS - col) * GLYPH_W, GLYPH_H, bg);
+}
+
 static void draw_status(const editor *ed)
 {
-    /* 比一行寬 —— 檔名與訊息合起來可能超過 40 格，靠 lcd_puts_line 截掉。
-     * 開成剛好 LCD_COLS+1 的話 snprintf 會先截一次，gcc 也會抱怨。 */
-    char line[ED_NAME_MAX + LCD_COLS + 16];
-    snprintf(line, sizeof line, "%-16s %s%s %s",
+    char line[ED_NAME_MAX + ED_COLS + 16];
+    int col;
+    snprintf(line, sizeof line, "%s %s%s %s",
              ed->name,
-             ed->mode == ED_MODE_BOPO ? "BOPO" : "ABC ",
+             ed->mode == ED_MODE_BOPO ? "\xE6\xB3\xA8" : "A",   /* 注 / A */
              ed->tb.dirty ? "*" : " ",
              ed->msg);
-    lcd_puts_line(ROW_STATUS, line, C_BLACK, C_GREY);
+    col = draw_utf8(0, ROW_STATUS, line, strlen(line), C_BLACK, C_GREY);
+    fill_rest(col, ROW_STATUS, C_GREY);
 }
 
 static void draw_text(const editor *ed)
 {
-    char buf[LCD_COLS * 3 + 1];
+    char buf[ED_COLS * 3 + 1];
     size_t p = ed->top;
     size_t total = tb_len(&ed->tb);
 
     for (int row = 0; row < ED_TEXT_ROWS; row++) {
         int screen_row = ROW_TEXT + row;
-        lcd_puts_line(screen_row, "", C_WHITE, C_BLACK);   /* 先清掉殘字 */
+        int col = 0;
 
-        if (p > total) continue;
-
-        size_t end = tb_line_end(&ed->tb, p);
-        size_t n = end - p;
-        if (n > sizeof buf - 1) n = sizeof buf - 1;
-        n = tb_copy(&ed->tb, p, buf, n);
-
-        draw_utf8(0, screen_row, buf, n, C_WHITE, C_BLACK);
-
-        if (end >= total) { p = total + 1; }   /* 最後一行畫完就停 */
-        else p = end + 1;
+        if (p <= total) {
+            size_t end = tb_line_end(&ed->tb, p);
+            size_t n = end - p;
+            if (n > sizeof buf - 1) n = sizeof buf - 1;
+            n = tb_copy(&ed->tb, p, buf, n);
+            col = draw_utf8(0, screen_row, buf, n, C_WHITE, C_BLACK);
+            p = (end >= total) ? total + 1 : end + 1;
+        }
+        fill_rest(col, screen_row, C_BLACK);
     }
 }
 
@@ -81,21 +122,21 @@ static void draw_cursor(const editor *ed)
 {
     int col = ed->cur_col;
     int row = ROW_TEXT + ed->cur_row;
-    if (col >= LCD_COLS) col = LCD_COLS - 1;
+    if (col >= ED_COLS) col = ED_COLS - 1;
     if (row >= ROW_CAND) return;
-    lcd_fill_rect(col * 8, row * 8 + 7, 8, 1, C_YELLOW);
+    lcd_fill_rect(col * GLYPH_W, row * GLYPH_H + GLYPH_H - 2,
+                  GLYPH_W, 2, C_YELLOW);
 }
 
 static void draw_cands(const editor *ed)
 {
-    char line[LCD_COLS + 1];
     int n = ed_cand_count(ed);
-    int col;
+    int col = 0;
 
-    lcd_puts_line(ROW_CAND, "", C_BLACK, C_BLUE);
-    if (ed->mode != ED_MODE_BOPO) return;
+    if (ed->mode != ED_MODE_BOPO) { fill_rest(0, ROW_CAND, C_BLACK); return; }
 
-    /* 左邊先寫使用者打的注音符號 */
+    /* 左邊是使用者打的注音符號。碼表裡有 ㄅㄆㄇ 本身(U+3105..U+3129),
+     * 所以這裡畫的是真的注音,不是佔位方塊。 */
     {
         char bopo[IME_MAX_BOPO + 1];
         int len = ime_bopomofo(ed->comp, bopo, sizeof bopo);
@@ -104,16 +145,17 @@ static void draw_cands(const editor *ed)
         col += 1;
     }
 
-    /* 右邊列候選字，前面標 1-9 */
-    for (int i = 0; i < n && col < LCD_COLS - 3; i++) {
-        char ch[8];
+    /* 右邊列候選字,前面標 1-9 */
+    for (int i = 0; i < n && col < ED_COLS - 3; i++) {
+        char ch[8], num[2];
         int len = ed_cand_nth(ed, i, ch, sizeof ch);
-        snprintf(line, sizeof line, "%d", i + 1);
-        lcd_puts(col, ROW_CAND, line, C_GREY, C_BLUE);
-        col += 1;
+        num[0] = (char)('1' + i);
+        num[1] = 0;
+        col = draw_utf8(col, ROW_CAND, num, 1, C_GREY, C_BLUE);
         col = draw_utf8(col, ROW_CAND, ch, (size_t)len, C_WHITE, C_BLUE);
         col += 1;
     }
+    fill_rest(col, ROW_CAND, C_BLUE);
 }
 
 void hw_display_draw(const editor *ed)

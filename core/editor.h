@@ -13,8 +13,10 @@
 #include "keys.h"
 #include "ime.h"
 
-#define ED_COLS 40           /* 跟 lcd.h 的文字模式一致 */
-#define ED_ROWS 30
+/* 畫面切成 8 寬 x 16 高的格子(見 core/glyph.h)。320x240 -> 40 x 15。
+ * 中文字佔兩格。 */
+#define ED_COLS 40
+#define ED_ROWS 15
 #define ED_TEXT_ROWS (ED_ROWS - 2)   /* 扣掉頂端狀態列與底部候選列 */
 
 #define ED_CAND_MAX 9        /* 一次顯示幾個候選字（用數字鍵 1-9 選） */

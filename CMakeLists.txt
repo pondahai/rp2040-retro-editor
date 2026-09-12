@@ -28,6 +28,7 @@ add_executable(retro_editor
     src/doc_sd.c
     core/textbuf.c
     core/editor.c
+    core/glyph.c
     vendor/lcd.c
     vendor/keys.c
     vendor/ime.c

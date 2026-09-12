@@ -5,8 +5,8 @@ RP2040 掌機上的**注音中文文件編輯器**，文件存在 SD 卡上。
 同時是 [`rp2040-retro-loader`](https://github.com/pondahai/rp2040-retro-loader)
 的 **app 範本** —— 要寫新的掌機韌體，可以從這份抄。
 
-> 🚧 **開發中**。LCD、鍵盤矩陣、注音組字、編輯核心都通了，
-> **SD 卡存取與中文字型還沒接上**（見下方「還沒做」）。
+> 🚧 **開發中**。LCD、鍵盤矩陣、注音組字、編輯核心、中文字型都通了，
+> **SD 卡存取還沒接上**（見下方「還沒做」）。
 
 ---
 
@@ -23,6 +23,7 @@ RP2040 掌機上的**注音中文文件編輯器**，文件存在 SD 卡上。
 | 3 | 產出兩個 uf2 | `retro_editor.uf2`（只能放 SD）與 `retro_editor_standalone.uf2`（跳板已合併） |
 | 4 | `.uf2` 放 SD 根目錄 | 部署時的事，不支援子目錄 |
 | 5 | 知道重置的語意被改掉了 | 見下方「⚠️ 重置」 |
+| 6 | 配一張 96×96 封面 | `RETRO_EDITOR.RAW`，跟 uf2 同名同放根目錄 |
 
 ### 驗證紀錄
 
@@ -48,9 +49,10 @@ RP2040 掌機上的**注音中文文件編輯器**，文件存在 SD 卡上。
 core/     純 C，不碰硬體，PC 上可測
           textbuf.c   gap buffer，UTF-8 邊界安全
           editor.c    編輯器狀態機 + 注音組字狀態
+          glyph.c     字型查表（二分搜尋、寬字左右半、缺字豆腐）
 vendor/   從生態系其他專案搬來、已在真機驗證過的
-          lcd.c       ILI9341 文字模式（搬自 loader，拿掉背景牆）
-          font8x8.h   8x8 ASCII 字型（font8x8_basic, public domain）
+          lcd.c       ILI9341 驅動（搬自 loader，拿掉選單背景牆）
+          font_cjk.h  Cubic 11 中文字型（搬自 infones，見下方）
           keys.c      去彈跳 / 修飾鍵 / 連發（搬自 retro-dict）
           ime.c       注音查碼（搬自 retro-dict）
 src/      只有這一層碰 GPIO
@@ -66,8 +68,10 @@ src/      只有這一層碰 GPIO
 test/build_test.bat     # 需要 VS2022 Community
 ```
 
-10 組測試，全部用中文而不是 "abc" —— 這一層會出錯的地方都在多位元組邊界上
-（backspace 刪一個字而不是一個 byte、游標不能停在中文字中間）。
+兩組測試。`textbuf` 那 10 組全部用中文而不是 `"abc"` —— 這一層會出錯的地方
+都在多位元組邊界上（backspace 刪一個字而不是一個 byte、游標不能停在中文字
+中間）。`glyph` 那組驗的是位元順序的約定：左右半不能拿成同一個 byte（會畫出
+左右對稱、看起來像字的假字）、yshift 有沒有算進去、缺字要畫豆腐。
 
 ---
 
@@ -123,12 +127,50 @@ ninja -C build_offset
 
 ---
 
+## 中文字型：Cubic 11
+
+用的是 **Cubic 11（俐方體十一號）**，11×11 點陣字，繁體。不是向量字型縮出來的
+——這個尺寸下原生點陣比縮放清楚得多，而且注音打出來的是繁體字。
+
+字型表直接搬 `rp2040-ili9341-infones` 的 `font_cjk.h`（7,701 個寬字 + 95 個
+ASCII，1 bit/pixel，約 200KB 進 flash）。它的源頭是
+`pico_keyboard_ime_terminal_usb_host`，經由 `pondahai/ime-charset-font-bitmap`
+的管線產生。
+
+**不放 SD 卡**：編輯器不想為了顯示中文而依賴插著卡。`rp2040-retro-dict` 另有一套
+16×16 2bit 灰階 Noto 放在 SD（`FONT.BIN`，1.25MB、14,516 字），畫質更好、字集更大，
+但多一個依賴，這裡不採用。
+
+格式上有三個一改就整片壞掉的約定，`core/glyph.c` 都有測試守著：
+
+- 一格 **8 寬 × 16 高**，中文佔**兩格**；左半 = `bits & 0xff`，右半 = `bits >> 8`
+- **bit 0 是最左邊**的像素
+- `YSHIFT 2` 已烘進列位置，所以 `glyphRow = row - 2`
+
+碼表裡**含注音符號本身**（`U+3105`–`U+3129` 就是 ㄅㄆㄇ），所以候選列畫的是
+真的注音，不必另外找字。
+
+## 封面圖示（必修 6）
+
+載入器的選單是圖形化的，每個 uf2 可以配一張封面：
+
+```bash
+python ../rp2040-retro-loader/tools/make_thumb.py tools/icon.png -o RETRO_EDITOR.RAW
+```
+
+- **96×96 RGB565 big-endian，沒有標頭，剛好 18432 bytes**
+- 檔名要跟 uf2 一致：`RETRO_EDITOR.UF2` 配 `RETRO_EDITOR.RAW`，兩個都放 SD 根目錄
+- 載入器只用檔案長度擋「拖錯檔案」（沒有標頭可以驗），所以長度必須剛好
+- 沒有的話不會怎樣，載入器會畫佔位圖
+
+為什麼不是 PNG：解碼器就等於程式碼，而載入器全部只有 16KB。
+
 ## 還沒做
 
 | 項目 | 現況 |
 | :--- | :--- |
 | **SD 卡存取** | `src/doc_sd.c` 是 stub，每個函式回 `DOC_ENOIMPL`。刻意不做「假裝成功」的版本 —— 那會讓使用者以為存檔了 |
-| **中文字型** | 目前中文畫成實心方塊佔位（寬度正確，所以游標位置是對的）。要接 `rp2040-retro-dict` 的 16×16 2bit 灰階 Noto |
+| ~~中文字型~~ | ✅ 已接上 Cubic 11，見下節 |
 | **真機測試** | 尚未在板子上跑過。編譯與向量表驗證過了，畫面沒有 |
 
 ### SD 寫入是這個專案真正的工程量
@@ -144,7 +186,7 @@ ninja -C build_offset
 
 | 來源 | 授權 |
 | :--- | :--- |
-| `vendor/font8x8.h` | font8x8_basic (Daniel Hepper)，public domain |
+| `vendor/font_cjk.h` | Cubic 11（俐方體十一號），OFL；經 infones 的 `make_cjk_font.py` 重新打包 |
 | `vendor/lcd.c` | 搬自 `rp2040-retro-loader` |
 | `vendor/keys.c`、`vendor/ime.c` | 搬自 `rp2040-retro-dict` |
 

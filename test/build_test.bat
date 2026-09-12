@@ -9,6 +9,17 @@ rem
 rem /utf-8 is required: the tests use Chinese string literals on purpose,
 rem because every bug worth catching here is on a multi-byte boundary.
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul
+
 cl /nologo /W4 /O2 /utf-8 /I%~dp0..\core /Fe:%~dp0test_textbuf.exe %~dp0test_textbuf.c %~dp0..\core\textbuf.c /Fo:%~dp0
 if errorlevel 1 exit /b 1
+
+cl /nologo /W4 /O2 /utf-8 /I%~dp0..\core /I%~dp0..\vendor /Fe:%~dp0test_glyph.exe %~dp0test_glyph.c %~dp0..\core\glyph.c /Fo:%~dp0
+if errorlevel 1 exit /b 1
+
+echo.
+echo === textbuf ===
 %~dp0test_textbuf.exe
+if errorlevel 1 exit /b 1
+echo.
+echo === glyph ===
+%~dp0test_glyph.exe
