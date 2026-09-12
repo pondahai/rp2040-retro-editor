@@ -145,14 +145,15 @@ static void draw_cands(const editor *ed)
         col += 1;
     }
 
-    /* 右邊列候選字,前面標 1-9 */
-    for (int i = 0; i < n && col < ED_COLS - 3; i++) {
-        char ch[8], num[2];
+    /* 右邊列候選字。選中的那個反白 —— 選字是靠上下鍵移動,不標數字:
+     * 數字鍵在大千配列是注音鍵,不能拿來選字(見 core/editor.c)。 */
+    for (int i = 0; i < n && col < ED_COLS - 2; i++) {
+        char ch[8];
         int len = ed_cand_nth(ed, i, ch, sizeof ch);
-        num[0] = (char)('1' + i);
-        num[1] = 0;
-        col = draw_utf8(col, ROW_CAND, num, 1, C_GREY, C_BLUE);
-        col = draw_utf8(col, ROW_CAND, ch, (size_t)len, C_WHITE, C_BLUE);
+        int sel = (i == ed_cand_sel(ed));
+        uint16_t fg = sel ? C_BLUE  : C_WHITE;
+        uint16_t bg = sel ? C_WHITE : C_BLUE;
+        col = draw_utf8(col, ROW_CAND, ch, (size_t)len, fg, bg);
         col += 1;
     }
     fill_rest(col, ROW_CAND, C_BLUE);

@@ -37,6 +37,7 @@ typedef struct {
     char     cands[256];              /* ime_query 的結果（多個字接在一起） */
     int      cand_count;
     int      cand_page;               /* 第幾頁，一頁 ED_CAND_MAX 個 */
+    int      cand_sel;                /* 這一頁選到第幾個（上下鍵移動） */
 
     /* --- 畫面 --- */
     size_t   top;                     /* 畫面最上面那一行的 byte offset */
@@ -63,5 +64,8 @@ void ed_reflow(editor *ed);
 int  ed_cand_count(const editor *ed);
 /* 取這一頁第 n 個候選字（UTF-8，NUL 結尾）。回傳 byte 數，0 = 沒有。 */
 int  ed_cand_nth(const editor *ed, int n, char *out, int out_size);
+
+/* 這一頁選到第幾個（繪製時用來反白）。 */
+int  ed_cand_sel(const editor *ed);
 
 #endif /* EDITOR_H */

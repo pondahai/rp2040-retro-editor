@@ -24,6 +24,7 @@ static void comp_reset(editor *ed)
     ed->comp[0] = 0;
     ed->cand_count = 0;
     ed->cand_page = 0;
+    ed->cand_sel = 0;
     ed->cands[0] = 0;
 }
 
@@ -36,6 +37,7 @@ static void comp_refresh(editor *ed)
     n = ime_query(ed->comp, ed->cands, (int)sizeof ed->cands);
     ed->cands[n] = 0;
     ed->cand_page = 0;
+    ed->cand_sel = 0;
 
     /* 候選是一串接在一起的 UTF-8，要自己數有幾個字 */
     ed->cand_count = 0;
@@ -59,6 +61,22 @@ int ed_cand_nth(const editor *ed, int n, char *out, int out_size)
 {
     if (n < 0 || n >= ed_cand_count(ed)) return 0;
     return ime_nth(ed->cands, ed->cand_page * ED_CAND_MAX + n, out, out_size);
+}
+
+int ed_cand_sel(const editor *ed)
+{
+    return ed->cand_sel;
+}
+
+static void cand_set_page(editor *ed, int page)
+{
+    int pages;
+    if (ed->cand_count == 0) return;
+    pages = (ed->cand_count + ED_CAND_MAX - 1) / ED_CAND_MAX;
+    if (page < 0) page = pages - 1;
+    if (page >= pages) page = 0;
+    ed->cand_page = page;
+    ed->cand_sel = 0;
 }
 
 /* 選中這一頁第 n 個候選字，插進文件。 */
@@ -124,34 +142,62 @@ void ed_reflow(editor *ed)
 static int handle_bopo(editor *ed, const key_event *ev)
 {
     uint8_t c = ev->code;
+    int n = ed_cand_count(ed);
 
-    /* 1-9 選字 */
-    if (c >= '1' && c <= '9' && ed_cand_count(ed) > 0) {
-        if (commit_cand(ed, c - '1')) return 1;
-        return 0;
-    }
+    /* ⚠ 這裡刻意**不用數字鍵選字**。
+     *
+     * 大千配列的數字鍵本身就是注音:1=ㄅ 2=ㄉ 5=ㄓ 8=ㄚ 9=ㄞ 0=ㄢ,
+     * 3/4/6/7 是聲調。拿來選字的話數字鍵永遠打不出注音 —— 這是本專案
+     * 真機上第一個被回報的 bug。
+     *
+     * 選字的操作照 rp2040-retro-dict 的 firmware/app.c:495-530,
+     * 那一套已經在真機上用過:Enter 選字、上下移動、PgUp/PgDn 翻頁。
+     */
 
-    /* 空白鍵翻頁 */
-    if (c == ' ' && ed->cand_count > ED_CAND_MAX) {
-        ed->cand_page++;
-        if (ed->cand_page * ED_CAND_MAX >= ed->cand_count) ed->cand_page = 0;
+    /* Enter:選目前這個候選 */
+    if (c == KEY_ENTER && n > 0) {
+        commit_cand(ed, ed->cand_sel);
         return 1;
     }
 
-    /* Backspace 退一個注音鍵；組字串空了就退出組字 */
+    /* 上下移動候選 */
+    if (c == KEY_UP && n > 0) {
+        if (ed->cand_sel > 0) ed->cand_sel--;
+        return 1;
+    }
+    if (c == KEY_DOWN && n > 0) {
+        if (ed->cand_sel + 1 < n) ed->cand_sel++;
+        return 1;
+    }
+
+    /* 翻頁 */
+    if (c == KEY_PGDN && ed->cand_count > 0) {
+        cand_set_page(ed, ed->cand_page + 1);
+        return 1;
+    }
+    if (c == KEY_PGUP && ed->cand_count > 0) {
+        cand_set_page(ed, ed->cand_page - 1);
+        return 1;
+    }
+
+    /* Backspace 退一個注音鍵;組字串空了才交給外面刪文件裡的字 */
     if (c == KEY_BS) {
         if (ed->comp_len > 0) {
             ed->comp[--ed->comp_len] = 0;
             comp_refresh(ed);
             return 1;
         }
-        return 0;   /* 交給外面刪文件裡的字 */
+        return 0;
     }
 
     /* ESC 取消組字 */
-    if (c == KEY_ESC) { comp_reset(ed); return 1; }
+    if (c == KEY_ESC) {
+        if (ed->comp_len == 0) return 0;
+        comp_reset(ed);
+        return 1;
+    }
 
-    /* 注音鍵 -> 累積 */
+    /* 注音鍵 -> 累積。數字鍵走的就是這條。 */
     if (c >= 0x20 && c < 0x7F && ime_key_bopo((char)c) != NULL) {
         if (ed->comp_len < IME_MAX_KEYS) {
             ed->comp[ed->comp_len++] = (char)c;
@@ -161,7 +207,12 @@ static int handle_bopo(editor *ed, const key_event *ev)
         return 1;
     }
 
-    return 0;   /* 其餘的交回去當一般編輯鍵 */
+    /* 不是注音鍵(例如空白、標點)。組字中的話吃掉,避免打斷組字;
+     * 沒在組字就讓它照一般編輯鍵處理。 */
+    if (ed->comp_len > 0 && c >= 0x20 && c < 0x7F)
+        return 1;
+
+    return 0;
 }
 
 int ed_key(editor *ed, const key_event *ev)

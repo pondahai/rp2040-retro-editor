@@ -23,3 +23,9 @@ if errorlevel 1 exit /b 1
 echo.
 echo === glyph ===
 %~dp0test_glyph.exe
+
+cl /nologo /W4 /O2 /utf-8 /I%~dp0..\core /I%~dp0..\vendor /Fe:%~dp0test_editor.exe %~dp0test_editor.c %~dp0..\core\editor.c %~dp0..\core\textbuf.c %~dp0..\vendor\ime.c /Fo:%~dp0
+if errorlevel 1 exit /b 1
+echo.
+echo === editor ===
+%~dp0test_editor.exe
