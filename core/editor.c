@@ -289,7 +289,13 @@ int ed_key(editor *ed, const key_event *ev)
 
     /* 組字中優先給注音處理 */
     if (ed->mode == ED_MODE_BOPO) {
-        if (handle_bopo(ed, ev)) { ed->redraw = 1; return 1; }
+        if (handle_bopo(ed, ev)) {
+            /* 選字會插入文字,游標因此往前跑 —— 一定要重算 cur_row/cur_col,
+             * 不然畫面上的游標會留在選字前的位置。 */
+            ed_reflow(ed);
+            ed->redraw = 1;
+            return 1;
+        }
     }
 
     switch (c) {

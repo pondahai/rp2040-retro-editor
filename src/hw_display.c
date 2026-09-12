@@ -14,6 +14,20 @@
  * 改走它的像素模式(lcd_blit),一次送一格 8x16。仍然沒有 framebuffer:
  * 320x240x16bpp 是 150KB,而且 DMA 留在半路會弄髒交棒後的下一個專題。
  */
+/* 候選列的版面(單位是格,一格 8px 寬):
+ *
+ *     0 .. CAND_COL-1    注音符號區
+ *     CAND_COL ..        候選字,每個佔 CAND_CELLS 格 = 數字 1 + 中文 2
+ *
+ * 注音區給**固定**寬度而不是「畫多少算多少」,這樣候選字的位置不會隨著
+ * 注音打到第幾個而左右跳動。
+ *
+ * 總寬 9 + 9x3 = 36 <= 40,剩 4 格餘裕。之前每個候選後面還多加一個空格
+ * (4 格),9 + 9x4 = 43 就超出畫面 —— 真機上看到的「第九個候選跑出去」。
+ */
+#define CAND_COL    9
+#define CAND_CELLS  3
+
 #define ROW_STATUS 0
 #define ROW_TEXT   1
 #define ROW_CAND   (ED_ROWS - 1)
@@ -148,26 +162,33 @@ static void draw_cands(const editor *ed)
         char bopo[IME_MAX_BOPO + 1];
         int len = ime_bopomofo(ed->comp, bopo, sizeof bopo);
         bopo[len] = 0;
-        col = draw_utf8(0, ROW_CAND, bopo, (size_t)len, C_YELLOW, C_BLUE);
-        col += 1;
+        draw_utf8(0, ROW_CAND, bopo, (size_t)len, C_YELLOW, C_BLUE);
     }
+    col = CAND_COL;
 
     /* 右邊列候選字,標上 1-9。
      *
      * 數字是給 **Fn+數字** 用的,不是直接按數字 —— 直接按的話是注音鍵
      * (大千配列 1=ㄅ 2=ㄉ …)。keys.c 會把 Fn+數字轉成 F1~F9。
      * 目前反白的那個用 Enter 或 Space 確認。 */
-    for (int i = 0; i < n && col < ED_COLS - 3; i++) {
+    for (int i = 0; i < n; i++) {
         char ch[8], num[2];
-        int len = ed_cand_nth(ed, i, ch, sizeof ch);
+        int len;
         int sel = (i == ed_cand_sel(ed));
         uint16_t fg = sel ? C_BLUE  : C_WHITE;
         uint16_t bg = sel ? C_WHITE : C_BLUE;
+
+        /* 放不下就整個不畫 —— 畫一半比少一個更難看,而且中文字只畫左半
+         * 會變成殘缺的字。 */
+        if (col + CAND_CELLS > ED_COLS)
+            break;
+
+        len = ed_cand_nth(ed, i, ch, sizeof ch);
         num[0] = (char)('1' + i);
         num[1] = 0;
-        col = draw_utf8(col, ROW_CAND, num, 1, C_GREY, C_BLUE);
-        col = draw_utf8(col, ROW_CAND, ch, (size_t)len, fg, bg);
-        col += 1;
+        draw_utf8(col, ROW_CAND, num, 1, C_GREY, C_BLUE);
+        draw_utf8(col + 1, ROW_CAND, ch, (size_t)len, fg, bg);
+        col += CAND_CELLS;
     }
 }
 
