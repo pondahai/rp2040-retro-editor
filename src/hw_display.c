@@ -75,25 +75,30 @@ static int draw_utf8(int col, int row, const char *s, size_t len,
     return col;
 }
 
-/* 把一列剩下的格子填成底色,清掉上一次的殘字。 */
-static void fill_rest(int col, int row, uint16_t bg)
+/* 把整列填成底色。
+ *
+ * 每一列都是**先清整列、再畫字**,不是畫完才去補清尾巴。
+ *
+ * 補清尾巴的寫法要靠「這次畫到第幾格」去算起點,那個數字一旦算錯
+ * (中文佔兩格、行尾只剩一格、字串被截斷…)殘字就留在畫面上 —— 真機上
+ * 回報過狀態列新舊訊息疊在一起。整列先清就沒有這個算式了。
+ *
+ * 成本是每列多一次 fill_rect,但這幾列只在 redraw 時畫,不是每幀。 */
+static void clear_row(int row, uint16_t bg)
 {
-    if (col < ED_COLS)
-        lcd_fill_rect(col * GLYPH_W, row * GLYPH_H,
-                      (ED_COLS - col) * GLYPH_W, GLYPH_H, bg);
+    lcd_fill_rect(0, row * GLYPH_H, ED_COLS * GLYPH_W, GLYPH_H, bg);
 }
 
 static void draw_status(const editor *ed)
 {
     char line[ED_NAME_MAX + ED_COLS + 16];
-    int col;
     snprintf(line, sizeof line, "%s %s%s %s",
              ed->name,
              ed->mode == ED_MODE_BOPO ? "\xE6\xB3\xA8" : "A",   /* 注 / A */
              ed->tb.dirty ? "*" : " ",
              ed->msg);
-    col = draw_utf8(0, ROW_STATUS, line, strlen(line), C_BLACK, C_GREY);
-    fill_rest(col, ROW_STATUS, C_GREY);
+    clear_row(ROW_STATUS, C_GREY);
+    draw_utf8(0, ROW_STATUS, line, strlen(line), C_BLACK, C_GREY);
 }
 
 static void draw_text(const editor *ed)
@@ -104,17 +109,17 @@ static void draw_text(const editor *ed)
 
     for (int row = 0; row < ED_TEXT_ROWS; row++) {
         int screen_row = ROW_TEXT + row;
-        int col = 0;
+
+        clear_row(screen_row, C_BLACK);
 
         if (p <= total) {
             size_t end = tb_line_end(&ed->tb, p);
             size_t n = end - p;
             if (n > sizeof buf - 1) n = sizeof buf - 1;
             n = tb_copy(&ed->tb, p, buf, n);
-            col = draw_utf8(0, screen_row, buf, n, C_WHITE, C_BLACK);
+            draw_utf8(0, screen_row, buf, n, C_WHITE, C_BLACK);
             p = (end >= total) ? total + 1 : end + 1;
         }
-        fill_rest(col, screen_row, C_BLACK);
     }
 }
 
@@ -133,7 +138,9 @@ static void draw_cands(const editor *ed)
     int n = ed_cand_count(ed);
     int col = 0;
 
-    if (ed->mode != ED_MODE_BOPO) { fill_rest(0, ROW_CAND, C_BLACK); return; }
+    if (ed->mode != ED_MODE_BOPO) { clear_row(ROW_CAND, C_BLACK); return; }
+
+    clear_row(ROW_CAND, C_BLUE);
 
     /* 左邊是使用者打的注音符號。碼表裡有 ㄅㄆㄇ 本身(U+3105..U+3129),
      * 所以這裡畫的是真的注音,不是佔位方塊。 */
@@ -162,7 +169,6 @@ static void draw_cands(const editor *ed)
         col = draw_utf8(col, ROW_CAND, ch, (size_t)len, fg, bg);
         col += 1;
     }
-    fill_rest(col, ROW_CAND, C_BLUE);
 }
 
 void hw_display_draw(const editor *ed)
