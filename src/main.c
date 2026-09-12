@@ -17,6 +17,7 @@
 #include "board.h"
 #include "hw_display.h"
 #include "hw_keys.h"
+#include "hw_dpad.h"
 #include "doc_sd.h"
 #include "editor.h"
 
@@ -71,6 +72,7 @@ int main(void)
 
     hw_display_init();
     hw_keys_init();
+    hw_dpad_init();
     keys_init(&kb);
 
     ed_init(&ed, doc_storage, sizeof doc_storage, DOC_NAME);
@@ -102,6 +104,10 @@ int main(void)
     for (;;) {
         key_event evs[KEYS_MAX_EVENTS];
         int n = hw_keys_poll(&kb, evs, KEYS_MAX_EVENTS);
+
+        /* D-pad 的事件接在矩陣後面 —— 鍵盤硬體已經沒有方向鍵了,
+         * 游標移動與候選字瀏覽都靠這 8 顆。 */
+        n = hw_dpad_poll(n, evs, KEYS_MAX_EVENTS);
 
         for (int i = 0; i < n; i++)
             ed_key(&ed, &evs[i]);

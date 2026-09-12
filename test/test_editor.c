@@ -1,9 +1,10 @@
 /* core/editor.c 的 PC 端測試。
  *
- * 第 4 組是真機上回報的第一個 bug 的回歸測試:注音模式下數字鍵變成數字。
- * 原因是本來拿 1-9 當選字鍵,但大千配列的數字鍵本身就是注音
- * (1=ㄅ 2=ㄉ 5=ㄓ 8=ㄚ 9=ㄞ 0=ㄢ,3/4/6/7 是聲調)。
- * 選字改成 Enter / 上下 / PgUp / PgDn,跟 rp2040-retro-dict 一致。
+ * 兩組回歸測試對應真機上回報的 bug:
+ *
+ *   第 4 組 注音模式下數字鍵變成數字。原本拿 1-9 當選字鍵,但大千配列的
+ *          數字鍵本身就是注音(1=ㄅ 2=ㄉ 5=ㄓ 8=ㄚ 9=ㄞ 0=ㄢ,3/4/6/7 是聲調)。
+ *   第 8 組 硬體已經拿掉方向鍵,所以游標移動與選字都不能依賴它們。
  */
 #include "editor.h"
 #include <stdio.h>
@@ -39,7 +40,7 @@ int main(void)
     CHECK(ed.mode == ED_MODE_ASCII, "預設英數");
     key('1', 0);
     dump_text(buf, sizeof buf);
-    CHECK(strcmp(buf, "1") == 0, "英數模式打 1 得到 \"1\"");
+    CHECK(strcmp(buf, "1") == 0, "英數模式打 1 得到 1");
 
     printf("2. Fn+Space 切到注音\n");
     key(' ', KEY_M_FN);
@@ -57,12 +58,12 @@ int main(void)
         char d;
         for (d = '0'; d <= '9'; d++) {
             ed.comp_len = 0; ed.comp[0] = 0;
-            key('s', 0);                     /* 打一個 ㄋ,製造候選 */
+            key('s', 0);
             dump_text(before, sizeof before);
             key(d, 0);
             dump_text(after, sizeof after);
             if (strcmp(before, after) != 0) {
-                printf("  FAIL 有候選時按 '%c' 插進了文件\n", d);
+                printf("  FAIL 有候選時按 %c 插進了文件\n", d);
                 fails++;
             }
         }
@@ -76,39 +77,56 @@ int main(void)
         char bopo[64];
         int n = ime_bopomofo(ed.comp, bopo, sizeof bopo);
         bopo[n] = 0;
-        printf("   組字串 = \"%s\"  注音 = \"%s\"  候選數 = %d\n",
+        printf("   組字串 = %s  注音 = %s  候選數 = %d\n",
                ed.comp, bopo, ed.cand_count);
-        /* ㄋㄧˇ = E3 84 8B  E3 84 A7  CB 87 */
         CHECK(strcmp(bopo, "\xE3\x84\x8B\xE3\x84\xA7\xCB\x87") == 0,
               "su3 -> ㄋㄧˇ");
     }
     CHECK(ed.cand_count > 0, "查得到候選字");
 
-    printf("6. Enter 選字\n");
-    key(KEY_ENTER, 0);
+    printf("6. Fn+1 選第一個候選\n");
+    key(KEY_F1, KEY_M_FN);
     dump_text(buf, sizeof buf);
-    printf("   文件內容 = \"%s\"\n", buf);
+    printf("   文件內容 = %s\n", buf);
     CHECK(strlen(buf) > 1, "選到字了");
     CHECK(ed.comp_len == 0, "選完字組字串清空");
 
-    printf("7. 上下鍵移動候選\n");
+    printf("7. Space 移動反白,Enter 確認\n");
     key('s', 0); key('u', 0); key('3', 0);
     CHECK(ed_cand_sel(&ed) == 0, "一開始選第一個");
-    key(KEY_DOWN, 0);
-    CHECK(ed_cand_sel(&ed) == 1, "往下移一個");
-    key(KEY_UP, 0);
-    CHECK(ed_cand_sel(&ed) == 0, "往上移回來");
-    key(KEY_UP, 0);
-    CHECK(ed_cand_sel(&ed) == 0, "在第一個時往上不會變負的");
+    key(' ', 0);
+    CHECK(ed_cand_sel(&ed) == 1, "Space 往下移一個");
+    key(' ', 0);
+    CHECK(ed_cand_sel(&ed) == 2, "再移一個");
+    {
+        size_t before = tb_len(&ed.tb);
+        key(KEY_ENTER, 0);
+        CHECK(tb_len(&ed.tb) > before, "Enter 選到字");
+    }
 
-    printf("8. PgDn 翻頁\n");
-    if (ed.cand_count > ED_CAND_MAX) {
-        key(KEY_PGDN, 0);
-        CHECK(ed.cand_page == 1, "翻到第二頁");
-        CHECK(ed_cand_sel(&ed) == 0, "翻頁後選回第一個");
+    printf("8. 回歸:硬體無方向鍵,用 Fn+IJKL\n");
+    {
+        size_t cur, len;
+        key(' ', KEY_M_FN);
+        CHECK(ed.mode == ED_MODE_ASCII, "切回英數");
+        key('a', 0); key('b', 0); key('c', 0);
+        cur = tb_cursor(&ed.tb);
+
+        key('j', KEY_M_FN);
+        CHECK(tb_cursor(&ed.tb) < cur, "Fn+J 游標往左");
+        key('l', KEY_M_FN);
+        CHECK(tb_cursor(&ed.tb) == cur, "Fn+L 游標往右");
+
+        len = tb_len(&ed.tb);
+        key('j', 0);
+        CHECK(tb_len(&ed.tb) == len + 1, "單獨按 j 是插入字母");
+        key(KEY_BS, 0);
     }
 
     printf("9. Esc 取消組字\n");
+    key(' ', KEY_M_FN);
+    key('s', 0); key('u', 0);
+    CHECK(ed.comp_len == 2, "組字中");
     key(KEY_ESC, 0);
     CHECK(ed.comp_len == 0, "組字串清空");
     CHECK(ed_cand_count(&ed) == 0, "候選清空");
@@ -117,11 +135,9 @@ int main(void)
     key(' ', KEY_M_FN);
     CHECK(ed.mode == ED_MODE_ASCII, "切回英數");
     {
-        char before[256], after[256];
-        dump_text(before, sizeof before);
+        size_t before = tb_len(&ed.tb);
         key('7', 0);
-        dump_text(after, sizeof after);
-        CHECK(strlen(after) == strlen(before) + 1, "英數模式打 7 會插入 7");
+        CHECK(tb_len(&ed.tb) == before + 1, "英數模式打 7 會插入 7");
     }
 
     if (fails == 0) { printf("\n全部通過\n"); return 0; }

@@ -32,6 +32,7 @@ add_executable(retro_editor
     src/main.c
     src/hw_display.c
     src/hw_keys.c
+    src/hw_dpad.c
     src/doc_sd.c
     core/textbuf.c
     core/editor.c

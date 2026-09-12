@@ -3,8 +3,14 @@
  * 權威來源是 rp2040-retro-handheld/docs/HARDWARE.md —— 改動先改那裡。
  * 這份只列編輯器實際用到的：顯示器、SD、鍵盤矩陣。
  *
- * 用不到而刻意省略的：音效(GPIO 7)、8 鍵遊戲按鍵(2/3/4/5/6/8/9/28)。
- * 編輯器走鍵盤矩陣那一套，不是 D-pad。
+ * 這台機器**兩套輸入並存**(見 HARDWARE.md):8x8 鍵盤矩陣,以及 8 顆直接接
+ * GPIO 的遊戲按鍵。編輯器兩套都用 ——
+ *
+ *   矩陣    打字、注音
+ *   D-pad   方向鍵。**鍵盤硬體已經把方向鍵拿掉了**,矩陣上那幾格現在空著,
+ *           所以游標移動與候選字瀏覽改由 D-pad 負責。
+ *
+ * 用不到而刻意省略的:音效(GPIO 7)。
  */
 #ifndef BOARD_H
 #define BOARD_H
@@ -36,5 +42,15 @@
 #define MTX_PIN_LATCH    14      /* 595 latch,同時當 165 的 load */
 #define MTX_PIN_CLOCK    26      /* 595 與 165 共用 */
 #define MTX_PIN_DATA_IN  27      /* <- 165 */
+
+/* ---- 8 鍵遊戲按鍵:全部 active-low,用內部上拉 ---- */
+#define BTN_PIN_UP       9
+#define BTN_PIN_DOWN     5
+#define BTN_PIN_LEFT     8
+#define BTN_PIN_RIGHT    6
+#define BTN_PIN_SELECT   28
+#define BTN_PIN_START    4
+#define BTN_PIN_A        2
+#define BTN_PIN_B        3
 
 #endif /* BOARD_H */

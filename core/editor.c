@@ -154,9 +154,30 @@ static int handle_bopo(editor *ed, const key_event *ev)
      * 那一套已經在真機上用過:Enter 選字、上下移動、PgUp/PgDn 翻頁。
      */
 
-    /* Enter:選目前這個候選 */
+    /* Fn+1~9 直接選第幾個。
+     *
+     * keys.c 的 fn_translate() 已經把 Fn+數字轉成 F1~F9,所以這裡收到的是
+     * KEY_F1..KEY_F9,不是 ASCII 數字 —— 跟注音的數字鍵不會混到。
+     * 這是目前**唯一**不必逐個移動就能選字的方式:硬體已經拿掉方向鍵。 */
+    if (c >= KEY_F1 && c <= (uint8_t)(KEY_F1 + ED_CAND_MAX - 1) && n > 0) {
+        commit_cand(ed, c - KEY_F1);
+        return 1;
+    }
+
+    /* Enter:選目前反白的那個 */
     if (c == KEY_ENTER && n > 0) {
         commit_cand(ed, ed->cand_sel);
+        return 1;
+    }
+
+    /* Space:反白往下移一個,到底了就翻頁。
+     * 沒有方向鍵之後,這是唯一能逐個瀏覽候選的操作。 */
+    if (c == ' ' && n > 0) {
+        if (ed->cand_sel + 1 < n) {
+            ed->cand_sel++;
+        } else {
+            cand_set_page(ed, ed->cand_page + 1);
+        }
         return 1;
     }
 
@@ -215,6 +236,26 @@ static int handle_bopo(editor *ed, const key_event *ev)
     return 0;
 }
 
+/* Fn + 字母 -> 方向鍵。
+ *
+ * 掌機的鍵盤硬體**已經拿掉方向鍵**,那幾個矩陣位置現在空著。所以游標移動
+ * 一律走 Fn 組合。挑 IJKL 是因為它們排成倒 T,而且不跟 Fn+S(存檔)撞
+ * —— WASD 會撞。
+ *
+ * 回傳 0 表示這個字母沒有對應的方向。 */
+static uint8_t fn_to_nav(uint8_t c)
+{
+    switch (c) {
+    case 'i': case 'I': return KEY_UP;
+    case 'k': case 'K': return KEY_DOWN;
+    case 'j': case 'J': return KEY_LEFT;
+    case 'l': case 'L': return KEY_RIGHT;
+    case 'u': case 'U': return KEY_PGUP;
+    case 'o': case 'O': return KEY_PGDN;
+    }
+    return 0;
+}
+
 int ed_key(editor *ed, const key_event *ev)
 {
     uint8_t c = ev->code;
@@ -222,19 +263,28 @@ int ed_key(editor *ed, const key_event *ev)
 
     ed->msg[0] = 0;
 
-    /* Fn + Space 切換中英 */
-    if (c == ' ' && (ev->mods & KEY_M_FN)) {
-        ed->mode = (ed->mode == ED_MODE_ASCII) ? ED_MODE_BOPO : ED_MODE_ASCII;
-        comp_reset(ed);
-        set_msg(ed, ed->mode == ED_MODE_BOPO ? "注音" : "英數");
-        ed->redraw = 1;
-        return 1;
-    }
+    if (ev->mods & KEY_M_FN) {
+        /* Fn + Space 切換中英 */
+        if (c == ' ') {
+            ed->mode = (ed->mode == ED_MODE_ASCII) ? ED_MODE_BOPO : ED_MODE_ASCII;
+            comp_reset(ed);
+            set_msg(ed, ed->mode == ED_MODE_BOPO ? "注音" : "英數");
+            ed->redraw = 1;
+            return 1;
+        }
 
-    /* Fn + S 存檔 */
-    if ((c == 's' || c == 'S') && (ev->mods & KEY_M_FN)) {
-        ed->need_save = 1;
-        return 1;
+        /* Fn + S 存檔 */
+        if (c == 's' || c == 'S') {
+            ed->need_save = 1;
+            return 1;
+        }
+
+        /* Fn + IJKL/UO -> 方向。換成對應的鍵碼之後就照一般流程走,
+         * 所以方向鍵如果哪天又裝回來,兩條路都能用。 */
+        {
+            uint8_t nav = fn_to_nav(c);
+            if (nav) c = nav;
+        }
     }
 
     /* 組字中優先給注音處理 */
