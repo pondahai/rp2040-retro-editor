@@ -5,8 +5,8 @@ RP2040 掌機上的**注音中文文件編輯器**，文件存在 SD 卡上。
 同時是 [`rp2040-retro-loader`](https://github.com/pondahai/rp2040-retro-loader)
 的 **app 範本** —— 要寫新的掌機韌體，可以從這份抄。
 
-> 🚧 **開發中**。LCD、鍵盤矩陣、注音組字、編輯核心、中文字型都通了，
-> **SD 卡存取還沒接上**（見下方「還沒做」）。
+> 🚧 **開發中**。LCD、鍵盤矩陣、注音組字、編輯核心、中文字型、SD 卡存取
+> 都通了。**尚未在真機上跑過**（見下方「還沒做」）。
 
 ---
 
@@ -55,10 +55,11 @@ vendor/   從生態系其他專案搬來、已在真機驗證過的
           font_cjk.h  Cubic 11 中文字型（搬自 infones，見下方）
           keys.c      去彈跳 / 修飾鍵 / 連發（搬自 retro-dict）
           ime.c       注音查碼（搬自 retro-dict）
+          drivers/    FatFs + SD 驅動（搬自 infones，整套未改）
 src/      只有這一層碰 GPIO
           hw_keys.c   74HC595/165 掃描時序
           hw_display.c  版面
-          doc_sd.c    SD 存取（目前是 stub）
+          doc_sd.c    SD 存取（寫暫存檔再換名）
           board.h     接腳
 ```
 
@@ -98,8 +99,14 @@ ninja -C build_offset
 `-DLOADER_PATH=<路徑>` 指定。`_standalone` 版需要 loader 先 build 過一次
 （要它的 `build/trampoline.uf2`）。
 
-> 💡 若 cmake 抱怨找不到 picotool，加
-> `-Dpicotool_DIR=<你的>/.pico-sdk/picotool/<版本>/picotool`。
+> 💡 **cmake 抱怨找不到 picotool 或 pioasm** 的話，把這兩個指到 VS Code
+> 擴充裝好的那份，就不必在命令列裡準備 host 編譯器（`pioasm` 要用 host
+> C++ 才能把 `.pio` 組成 header）：
+>
+> ```
+> -Dpicotool_DIR=<你的>/.pico-sdk/picotool/2.2.0-a4/picotool
+> -Dpioasm_DIR=<你的>/.pico-sdk/tools/2.2.0/pioasm
+> ```
 
 ---
 
@@ -169,16 +176,38 @@ python ../rp2040-retro-loader/tools/make_thumb.py tools/icon.png -o RETRO_EDITOR
 
 | 項目 | 現況 |
 | :--- | :--- |
-| **SD 卡存取** | `src/doc_sd.c` 是 stub，每個函式回 `DOC_ENOIMPL`。刻意不做「假裝成功」的版本 —— 那會讓使用者以為存檔了 |
+| ~~SD 卡存取~~ | ✅ 已接上，見下節 |
+| **自動存檔** | 目前只有 `Fn+S` 手動存。掉電會丟掉未存的內容 |
+| **開檔選單** | 檔名寫死 `NOTE.TXT`。沒有檔案瀏覽器 |
 | ~~中文字型~~ | ✅ 已接上 Cubic 11，見下節 |
 | **真機測試** | 尚未在板子上跑過。編譯與向量表驗證過了，畫面沒有 |
 
-### SD 寫入是這個專案真正的工程量
+### SD 存取：生態系第一個會「寫」的韌體
 
-生態系現有的韌體（infones / PicoApple2 / doom / loader）**全部只讀 SD**。
-編輯器是第一個要寫的，所以掉電損毀、`f_sync` 的時機、`FF_FS_READONLY=0`
-之後多出來的 code size 都是新題目。FatFs 與 SD 驅動可以從
-`rp2040-ili9341-infones/software/infones/drivers/` 搬，但那是唯讀用法。
+其他專案（infones / PicoApple2 / doom / loader）**全部只讀 SD**。
+
+FatFs 與 SD 驅動整套搬自 `rp2040-ili9341-infones` 的 `drivers/`，一行沒改
+——它的 `ffconf.h` 本來就是 `FF_FS_READONLY 0`，`disk_write()` 也早就實作好了，
+只是 infones 自己沒用到。接腳預設 spi1 + 13/10/11/12，跟 `board.h` 一致。
+底層走 PIO SPI（`spi.pio`），不佔用硬體 spi1。
+
+**存檔是寫暫存檔再換名**，不是直接覆蓋原檔：
+
+```
+寫 ~NOTE.TXT  ->  f_sync（確定落地）->  f_close
+              ->  f_unlink(NOTE.TXT)  ->  f_rename
+```
+
+直接 `f_open(FA_CREATE_ALWAYS)` 的話，那一瞬間原檔就被截成 0 了——掉電或
+拔卡就兩份都沒有。掌機沒有電池監測、使用者隨時可能直接拔電，這個視窗不能留。
+換名前那次 `f_sync` 不是多餘的：**先確定資料真的進了卡，再去動目錄項**，
+順序才是對的。掉電的結果只有三種：原檔完好多一個 `~` 暫存檔、rename 是單一
+目錄項操作不會兩邊都壞、或新檔完好。
+
+代價是存檔期間卡上會短暫存在兩份完整的文件。
+
+存檔時不必另外開一塊 32KB 來拼接 gap buffer：**把游標移到最尾端，gap 就整塊
+跑到後面去**，`buf[0..len)` 剛好是連續的文字，存完再把游標移回原位。
 
 ---
 
@@ -189,6 +218,8 @@ python ../rp2040-retro-loader/tools/make_thumb.py tools/icon.png -o RETRO_EDITOR
 | `vendor/font_cjk.h` | Cubic 11（俐方體十一號），OFL；經 infones 的 `make_cjk_font.py` 重新打包 |
 | `vendor/lcd.c` | 搬自 `rp2040-retro-loader` |
 | `vendor/keys.c`、`vendor/ime.c` | 搬自 `rp2040-retro-dict` |
+| `vendor/drivers/fatfs` | FatFs (ChaN)，BSD 類授權，見其 `ff.h` |
+| `vendor/drivers/sdcard` | 搬自 `rp2040-ili9341-infones`，見其 `LICENSE` |
 
 > ⚠️ **注音碼表的授權未定**：`vendor/ime_tables.h` 產生自
 > `pico_keyboard_ime_terminal`，該 repo 目前沒有 LICENSE 檔、碼表出處也未

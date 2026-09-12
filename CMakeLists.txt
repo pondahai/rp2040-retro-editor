@@ -21,6 +21,13 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+# FatFs + SD 驅動，整套搬自 rp2040-ili9341-infones 的 drivers/。
+# 兩個都是 INTERFACE library，照它們原本的掛法。
+# ⚠ 必須放在 pico_sdk_init() 之後 —— sdcard.cmake 會呼叫
+#   pico_generate_pio_header()，那在 SDK 初始化之前還不存在。
+include(vendor/drivers/fatfs/fatfs.cmake)
+include(vendor/drivers/sdcard/sdcard.cmake)
+
 add_executable(retro_editor
     src/main.c
     src/hw_display.c
@@ -44,6 +51,7 @@ target_link_libraries(retro_editor
     pico_stdlib
     hardware_spi
     hardware_dma
+    sdcard          # 連帶把 fatfs 一起拉進來
 )
 
 target_compile_options(retro_editor PRIVATE -Wall -Wextra)
