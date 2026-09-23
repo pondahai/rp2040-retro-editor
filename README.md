@@ -244,14 +244,23 @@ FatFs 與 SD 驅動整套搬自 `rp2040-ili9341-infones` 的 `drivers/`，一行
 
 ## 授權與出處
 
+專案自身的程式碼（`core/`、`src/`）採 **MIT**，見 [`LICENSE`](LICENSE)。
+第三方成分的完整聲明見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+
 | 來源 | 授權 |
 | :--- | :--- |
-| `vendor/font_cjk.h` | Cubic 11（俐方體十一號），OFL；經 infones 的 `make_cjk_font.py` 重新打包 |
-| `vendor/lcd.c` | 搬自 `rp2040-retro-loader` |
-| `vendor/keys.c`、`vendor/ime.c` | 搬自 `rp2040-retro-dict` |
-| `vendor/drivers/fatfs` | FatFs (ChaN)，BSD 類授權，見其 `ff.h` |
-| `vendor/drivers/sdcard` | 搬自 `rp2040-ili9341-infones`，見其 `LICENSE` |
+| `vendor/ime_tables.h` | 注音碼表，衍生自 **McBopomofo**（MIT，Copyright (c) 2011-2026 Mengjuei Hsieh et al.） |
+| `vendor/font_cjk.h` | Cubic 11（俐方體十一號），SIL OFL 1.1；經 infones 的 `make_cjk_font.py` 重新打包 |
+| `vendor/lcd.c` | 搬自 `rp2040-retro-loader`（作者自有，MIT） |
+| `vendor/keys.c`、`vendor/ime.c` | 搬自 `rp2040-retro-dict`（作者自有，MIT） |
+| `vendor/drivers/fatfs` | FatFs (ChaN) R0.14b，BSD 類授權，見其 `ff.h` |
+| `vendor/drivers/sdcard` | BSD-2-Clause（Elehobica）；其中 `pio_spi.*` 為 BSD-3-Clause（Raspberry Pi Trading） |
 
-> ⚠️ **注音碼表的授權未定**：`vendor/ime_tables.h` 產生自
-> `pico_keyboard_ime_terminal`，該 repo 目前沒有 LICENSE 檔、碼表出處也未
-> 寫明。**散布前要先補上。**
+> ✅ **注音碼表的出處已釐清**：`vendor/ime_tables.h` 追溯至
+> [McBopomofo](https://github.com/openvanilla/McBopomofo)（小麥注音輸入法），
+> 授權為 **MIT**。使用的是 `BPMFBase.txt`（單字注音）與
+> `BPMFPunctuations.txt`（標點）——兩者在上游皆無額外出處註記。
+>
+> 帶有 libtabe（BSD）血統的是多字詞庫 `BPMFMappings.txt`，**本專案未使用**
+> （這裡是單字候選，不是詞庫）。因此碼表側的義務僅為 MIT 的姓名標示，
+> 已載於 `THIRD_PARTY_NOTICES.md`。
