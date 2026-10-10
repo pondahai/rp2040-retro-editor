@@ -57,6 +57,12 @@ target_link_libraries(retro_editor
 
 target_compile_options(retro_editor PRIVATE -Wall -Wextra)
 
+# 鍵盤 165 QH 改接 GPIO 15(與 595 SER 共用)的硬體修改,見 src/board.h
+option(KBD_SHARED_DATA "165 QH shares GPIO 15 with 595 SER via 1k (GPIO 27 freed)" OFF)
+if(KBD_SHARED_DATA)
+    target_compile_definitions(retro_editor PRIVATE KBD_SHARED_DATA=1)
+endif()
+
 pico_add_extra_outputs(retro_editor)
 
 # ---------------------------------------------------------------------------

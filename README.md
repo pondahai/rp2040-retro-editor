@@ -100,6 +100,23 @@ ninja -C build_offset
 `-DLOADER_PATH=<路徑>` 指定。`_standalone` 版需要 loader 先 build 過一次
 （要它的 `build/trampoline.uf2`）。
 
+### 鍵盤 QH 改接 GPIO 15 的硬體修改（`KBD_SHARED_DATA`）
+
+有些機器把 74HC165 的 QH 從 GPIO 27 改成**串 1 kΩ 接到 GPIO 15**，跟 595 的
+SER 共用一支腳，GPIO 27 割線空出來留給 ADC。這種機器要加 `-DKBD_SHARED_DATA=ON`
+（一般編譯、偏移編譯都可以加）：
+
+```bash
+cmake -S . -B build_offset -G Ninja -DPICO_BOARD=pico -DLOADER_OFFSET_BUILD=ON -DKBD_SHARED_DATA=ON
+```
+
+預設 `OFF` = 原本接線。開機時狀態列（與序列埠）會顯示 `kbd QH on GP15` 或
+`kbd QH on GP27`，燒錯版本一眼看得出來。
+
+共用 CLOCK 的意思是：讀 165 的那 8 拍也會把 QH 推進 595。這之所以無害，是因為
+掃描每一列都先重新寫滿 16 bit（兩顆串聯 595）才拉 LATCH —— 改 `scan_matrix()`
+的順序時別破壞這個前提，見 `src/hw_keys.c` 的註解。
+
 > 💡 **cmake 抱怨找不到 picotool 或 pioasm** 的話，把這兩個指到 VS Code
 > 擴充裝好的那份，就不必在命令列裡準備 host 編譯器（`pioasm` 要用 host
 > C++ 才能把 `.pio` 組成 header）：

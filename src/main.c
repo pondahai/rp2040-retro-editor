@@ -96,6 +96,14 @@ int main(void)
         }
     }
 
+    /* 開機時把鍵盤接線模式掛在狀態列上,燒錄後一眼可確認;序列埠也印一份 */
+    {
+        char m[sizeof ed.msg];
+        snprintf(m, sizeof m, "%s | %s", ed.msg, KBD_MODE_STR);
+        set_msg(m);
+        printf("retro_editor: %s\n", KBD_MODE_STR);
+    }
+
     tb_move_to(&ed.tb, 0);
     ed.tb.dirty = 0;
     ed_reflow(&ed);

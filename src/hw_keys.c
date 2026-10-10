@@ -13,6 +13,24 @@
  *      之後那串 1/0/1 的抖動是在「鎖存輸出、順便叫 165 取樣」。
  */
 
+/* KBD_SHARED_DATA:GPIO 15 兼當 595 SER 與 165 QH(經 1 kΩ)。
+ * 每次寫 595 前切成輸出、每次讀 165 前切成輸入。平常(掃描之外)停在輸入,
+ * 讓 QH 不必一直跟 RP2040 的輸出對打。 */
+static inline void data_pin_to_out(void)
+{
+#if KBD_SHARED_DATA
+    gpio_set_dir(MTX_PIN_DATA_OUT, GPIO_OUT);
+#endif
+}
+
+static inline void data_pin_to_in(void)
+{
+#if KBD_SHARED_DATA
+    gpio_set_dir(MTX_PIN_DATA_IN, GPIO_IN);
+    sleep_us(1);    /* 等 QH 經 1 kΩ 把腳位拉到位 */
+#endif
+}
+
 static void shift_out(uint8_t v)
 {
     /* MSB first */
@@ -38,7 +56,11 @@ static uint8_t shift_in(void)
 
 void hw_keys_init(void)
 {
+#if KBD_SHARED_DATA
+    const uint pins_out[] = { MTX_PIN_LATCH, MTX_PIN_CLOCK };
+#else
     const uint pins_out[] = { MTX_PIN_DATA_OUT, MTX_PIN_LATCH, MTX_PIN_CLOCK };
+#endif
     for (unsigned i = 0; i < count_of(pins_out); i++) {
         gpio_init(pins_out[i]);
         gpio_set_dir(pins_out[i], GPIO_OUT);
@@ -46,12 +68,24 @@ void hw_keys_init(void)
     }
     gpio_init(MTX_PIN_DATA_IN);
     gpio_set_dir(MTX_PIN_DATA_IN, GPIO_IN);
+#if KBD_SHARED_DATA
+    /* 預設下拉約 50 kΩ 會跟 1 kΩ 分壓,關掉。
+     * 先把輸出暫存器設 0,之後切成輸出時才不會冒出殘留的 1。 */
+    gpio_disable_pulls(MTX_PIN_DATA_IN);
+    gpio_put(MTX_PIN_DATA_OUT, 0);
+
+    /* 27 已割線、留給 ADC:輸入、不上下拉,不要再當輸出 */
+    gpio_init(MTX_PIN_SPARE);
+    gpio_set_dir(MTX_PIN_SPARE, GPIO_IN);
+    gpio_disable_pulls(MTX_PIN_SPARE);
+#endif
 }
 
 static void scan_matrix(uint8_t rows[8])
 {
     for (int row = 0; row < 8; row++) {
         gpio_put(MTX_PIN_LATCH, 0);
+        data_pin_to_out();
         shift_out(0);                          /* 給串聯的另一顆 595 */
         shift_out((uint8_t)(1u << row));       /* 選這一列 */
         gpio_put(MTX_PIN_LATCH, 1);
@@ -60,6 +94,7 @@ static void scan_matrix(uint8_t rows[8])
         sleep_us(1);
         gpio_put(MTX_PIN_LATCH, 1);
 
+        data_pin_to_in();
         uint8_t col_data = shift_in();
 
         /* 165 讀回來的 bit 順序跟 col 相反:
@@ -72,7 +107,10 @@ static void scan_matrix(uint8_t rows[8])
         rows[row] = r;
     }
 
-    /* 收尾的一拍,同樣照搬上游 */
+    /* 收尾的一拍,同樣照搬上游。
+     * KBD_SHARED_DATA 時 GPIO 15 此刻已是輸入(最後一步是 shift_in),
+     * 掃描結束就停在輸入。這一拍推進 595 的垃圾無害:下一輪每列都先
+     * 重新寫滿 16 bit 才拉 LATCH。 */
     gpio_put(MTX_PIN_CLOCK, 1);
     sleep_us(2);
     gpio_put(MTX_PIN_CLOCK, 0);

@@ -41,7 +41,24 @@
 #define MTX_PIN_DATA_OUT 15      /* -> 595 */
 #define MTX_PIN_LATCH    14      /* 595 latch,同時當 165 的 load */
 #define MTX_PIN_CLOCK    26      /* 595 與 165 共用 */
+
+/* KBD_SHARED_DATA = 1:硬體改過的機器 —— 165 的 QH 不再接 GPIO 27,改成串
+ * 1 kΩ 接到 GPIO 15,跟 595 的 SER 共用一支腳。寫 595 時 GPIO 15 當輸出
+ * (隔著 1 kΩ 蓋過 QH),讀 165 時切成輸入。GPIO 27 空出來留給 ADC。
+ * 預設 0 = 原本接線,沒改硬體的機器照常能用。
+ * 編譯時用 cmake -DKBD_SHARED_DATA=1 切換。 */
+#ifndef KBD_SHARED_DATA
+#define KBD_SHARED_DATA  0
+#endif
+
+#if KBD_SHARED_DATA
+#define MTX_PIN_DATA_IN  15      /* <- 165 QH,經 1 kΩ,與 DATA_OUT 共用 */
+#define MTX_PIN_SPARE    27      /* 割線後空出,留給 ADC */
+#define KBD_MODE_STR     "kbd QH on GP15"
+#else
 #define MTX_PIN_DATA_IN  27      /* <- 165 */
+#define KBD_MODE_STR     "kbd QH on GP27"
+#endif
 
 /* ---- 8 鍵遊戲按鍵:全部 active-low,用內部上拉 ---- */
 #define BTN_PIN_UP       9
