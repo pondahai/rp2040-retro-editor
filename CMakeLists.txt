@@ -63,6 +63,15 @@ if(KBD_SHARED_DATA)
     target_compile_definitions(retro_editor PRIVATE KBD_SHARED_DATA=1)
 endif()
 
+# 鍵盤 CLOCK 改接 LCD D/C(GPIO 20),GPIO 26/27 都空出來。須搭配 KBD_SHARED_DATA
+option(KBD_CLK_ON_LCD_DC "595/165 CLOCK shares GPIO 20 with LCD D/C (GPIO 26 freed)" OFF)
+if(KBD_CLK_ON_LCD_DC)
+    if(NOT KBD_SHARED_DATA)
+        message(FATAL_ERROR "KBD_CLK_ON_LCD_DC requires KBD_SHARED_DATA=ON")
+    endif()
+    target_compile_definitions(retro_editor PRIVATE KBD_CLK_ON_LCD_DC=1)
+endif()
+
 pico_add_extra_outputs(retro_editor)
 
 # ---------------------------------------------------------------------------

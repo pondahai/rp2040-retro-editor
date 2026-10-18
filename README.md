@@ -117,6 +117,20 @@ cmake -S . -B build_offset -G Ninja -DPICO_BOARD=pico -DLOADER_OFFSET_BUILD=ON -
 掃描每一列都先重新寫滿 16 bit（兩顆串聯 595）才拉 LATCH —— 改 `scan_matrix()`
 的順序時別破壞這個前提，見 `src/hw_keys.c` 的註解。
 
+### 鍵盤 CLOCK 改接 LCD D/C 的硬體修改（`KBD_CLK_ON_LCD_DC`）
+
+在上面的修改之外，再把 595/165 的 CLOCK 從 GPIO 26 改接到 LCD 的 D/C（GPIO 20），
+GPIO 26、27 都空出來（韌體設成高阻抗）。LATCH（GPIO 14）閒置停在高。要兩個開關一起開：
+
+```bash
+cmake -S . -B build_offset -G Ninja -DPICO_BOARD=pico -DLOADER_OFFSET_BUILD=ON -DKBD_SHARED_DATA=ON -DKBD_CLK_ON_LCD_DC=ON
+```
+
+狀態列會顯示 `kbd QH GP15 CLK DC`。可行的前提是掃描時 LCD 沒在傳輸、CS 為高：
+目前 LCD 全走 `spi_write_blocking`、跟掃描同在主迴圈，所以成立；`scan_matrix()`
+仍會先等 SPI 閒置、拉高 CS，並在掃完把 D/C 還原。日後若改成 DMA 或雙核心畫圖，
+必須在掃描前加同步。
+
 > 💡 **cmake 抱怨找不到 picotool 或 pioasm** 的話，把這兩個指到 VS Code
 > 擴充裝好的那份，就不必在命令列裡準備 host 編譯器（`pioasm` 要用 host
 > C++ 才能把 `.pio` 組成 header）：

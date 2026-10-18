@@ -40,7 +40,25 @@
 /* ---- 8x8 鍵盤矩陣 (74HC595 掃描列 / 74HC165 讀回) ---- */
 #define MTX_PIN_DATA_OUT 15      /* -> 595 */
 #define MTX_PIN_LATCH    14      /* 595 latch,同時當 165 的 load */
+
+/* KBD_CLK_ON_LCD_DC = 1:595/165 的 CLOCK 改接 LCD 的 D/C(GPIO 20)。
+ * LCD 只在 CS 低時於 SCK 邊緣取樣 D/C,所以掃描時只要 LCD 沒在傳輸、
+ * CS 為高,D/C 怎麼跳都無妨;平常 LCD 翻 D/C 只會讓 595/165 多移幾位,
+ * LATCH 不動 595 輸出就不變,165 每次掃描開頭也會重新載入。
+ * 必須同時開 KBD_SHARED_DATA。GPIO 26、27 都空出來。 */
+#ifndef KBD_CLK_ON_LCD_DC
+#define KBD_CLK_ON_LCD_DC 0
+#endif
+
+#if KBD_CLK_ON_LCD_DC
+#if !KBD_SHARED_DATA
+#error "KBD_CLK_ON_LCD_DC requires KBD_SHARED_DATA"
+#endif
+#define MTX_PIN_CLOCK    LCD_PIN_DC  /* 595 與 165 共用,兼 LCD D/C */
+#define MTX_PIN_SPARE2   26          /* 空出,高阻抗 */
+#else
 #define MTX_PIN_CLOCK    26      /* 595 與 165 共用 */
+#endif
 
 /* KBD_SHARED_DATA = 1:硬體改過的機器 —— 165 的 QH 不再接 GPIO 27,改成串
  * 1 kΩ 接到 GPIO 15,跟 595 的 SER 共用一支腳。寫 595 時 GPIO 15 當輸出
@@ -54,7 +72,11 @@
 #if KBD_SHARED_DATA
 #define MTX_PIN_DATA_IN  15      /* <- 165 QH,經 1 kΩ,與 DATA_OUT 共用 */
 #define MTX_PIN_SPARE    27      /* 割線後空出,留給 ADC */
+#if KBD_CLK_ON_LCD_DC
+#define KBD_MODE_STR     "kbd QH GP15 CLK DC"
+#else
 #define KBD_MODE_STR     "kbd QH on GP15"
+#endif
 #else
 #define MTX_PIN_DATA_IN  27      /* <- 165 */
 #define KBD_MODE_STR     "kbd QH on GP27"

@@ -1,6 +1,9 @@
 #include "hw_keys.h"
 #include "board.h"
 #include "pico/stdlib.h"
+#if KBD_CLK_ON_LCD_DC
+#include "hardware/spi.h"
+#endif
 
 /* 掃描時序原封搬自 PicoApple2.ino 的 scan_matrix()
  * (經由 PicoApple2-KeyboardTester/KeyboardTester.ino:122-135 確認)。
@@ -56,7 +59,11 @@ static uint8_t shift_in(void)
 
 void hw_keys_init(void)
 {
-#if KBD_SHARED_DATA
+#if KBD_CLK_ON_LCD_DC
+    /* CLOCK = LCD D/C,lcd_init() 已經初始化過,這裡不能再 gpio_init
+     * (會把 D/C 拉回 0)。驅動電流/斜率維持預設,減少輻射。 */
+    const uint pins_out[] = { MTX_PIN_LATCH };
+#elif KBD_SHARED_DATA
     const uint pins_out[] = { MTX_PIN_LATCH, MTX_PIN_CLOCK };
 #else
     const uint pins_out[] = { MTX_PIN_DATA_OUT, MTX_PIN_LATCH, MTX_PIN_CLOCK };
@@ -79,10 +86,28 @@ void hw_keys_init(void)
     gpio_set_dir(MTX_PIN_SPARE, GPIO_IN);
     gpio_disable_pulls(MTX_PIN_SPARE);
 #endif
+#if KBD_CLK_ON_LCD_DC
+    /* 26 也跟鍵盤無關了:高阻抗 */
+    gpio_init(MTX_PIN_SPARE2);
+    gpio_set_dir(MTX_PIN_SPARE2, GPIO_IN);
+    gpio_disable_pulls(MTX_PIN_SPARE2);
+    /* LATCH 閒置停在高:LCD 翻 D/C 時 595 輸出不動 */
+    gpio_put(MTX_PIN_LATCH, 1);
+#endif
 }
 
 static void scan_matrix(uint8_t rows[8])
 {
+#if KBD_CLK_ON_LCD_DC
+    /* CLOCK 就是 LCD D/C:LCD 不能正在傳輸。LCD 驅動全走
+     * spi_write_blocking 且跟這裡同在主迴圈,照理已經做完;仍再等一次
+     * SPI 閒置、拉高 CS 保險。若日後改用 DMA 或另一核心畫圖,這裡要加同步。
+     * D/C 電位記下來,掃完還原,LCD 驅動的狀態維持不變。 */
+    while (spi_is_busy(LCD_SPI)) tight_loop_contents();
+    gpio_put(LCD_PIN_CS, 1);
+    bool dc_saved = gpio_get_out_level(LCD_PIN_DC);
+    gpio_put(MTX_PIN_CLOCK, 0);
+#endif
     for (int row = 0; row < 8; row++) {
         gpio_put(MTX_PIN_LATCH, 0);
         data_pin_to_out();
@@ -114,6 +139,9 @@ static void scan_matrix(uint8_t rows[8])
     gpio_put(MTX_PIN_CLOCK, 1);
     sleep_us(2);
     gpio_put(MTX_PIN_CLOCK, 0);
+#if KBD_CLK_ON_LCD_DC
+    gpio_put(LCD_PIN_DC, dc_saved);
+#endif
 }
 
 int hw_keys_poll(keys *k, key_event *out, int max)
