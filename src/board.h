@@ -46,8 +46,12 @@
  * CS 為高,D/C 怎麼跳都無妨;平常 LCD 翻 D/C 只會讓 595/165 多移幾位,
  * LATCH 不動 595 輸出就不變,165 每次掃描開頭也會重新載入。
  * 必須同時開 KBD_SHARED_DATA。GPIO 26、27 都空出來。 */
+/* 預設 1 = 現行接線(rp2040-retro-handheld docs/HARDWARE.md §2.2)。 */
+#ifndef KBD_SHARED_DATA
+#define KBD_SHARED_DATA  1
+#endif
 #ifndef KBD_CLK_ON_LCD_DC
-#define KBD_CLK_ON_LCD_DC 0
+#define KBD_CLK_ON_LCD_DC 1
 #endif
 
 #if KBD_CLK_ON_LCD_DC
@@ -63,11 +67,8 @@
 /* KBD_SHARED_DATA = 1:硬體改過的機器 —— 165 的 QH 不再接 GPIO 27,改成串
  * 1 kΩ 接到 GPIO 15,跟 595 的 SER 共用一支腳。寫 595 時 GPIO 15 當輸出
  * (隔著 1 kΩ 蓋過 QH),讀 165 時切成輸入。GPIO 27 空出來留給 ADC。
- * 預設 0 = 原本接線,沒改硬體的機器照常能用。
- * 編譯時用 cmake -DKBD_SHARED_DATA=1 切換。 */
-#ifndef KBD_SHARED_DATA
-#define KBD_SHARED_DATA  0
-#endif
+ * 設 0 = 舊接線(QH 在 GPIO 27)。預設值定義在上方。
+ * 舊機器用 cmake -DKBD_SHARED_DATA=OFF -DKBD_CLK_ON_LCD_DC=OFF。 */
 
 #if KBD_SHARED_DATA
 #define MTX_PIN_DATA_IN  15      /* <- 165 QH,經 1 kΩ,與 DATA_OUT 共用 */

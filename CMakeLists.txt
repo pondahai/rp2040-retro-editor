@@ -58,19 +58,25 @@ target_link_libraries(retro_editor
 target_compile_options(retro_editor PRIVATE -Wall -Wextra)
 
 # 鍵盤 165 QH 改接 GPIO 15(與 595 SER 共用)的硬體修改,見 src/board.h
-option(KBD_SHARED_DATA "165 QH shares GPIO 15 with 595 SER via 1k (GPIO 27 freed)" OFF)
+# 預設 ON = 現行接線;舊機器 -DKBD_SHARED_DATA=OFF -DKBD_CLK_ON_LCD_DC=OFF
+option(KBD_SHARED_DATA "165 QH shares GPIO 15 with 595 SER via 1k (GPIO 27 freed)" ON)
 if(KBD_SHARED_DATA)
     target_compile_definitions(retro_editor PRIVATE KBD_SHARED_DATA=1)
+else()
+    target_compile_definitions(retro_editor PRIVATE KBD_SHARED_DATA=0)
 endif()
 
 # 鍵盤 CLOCK 改接 LCD D/C(GPIO 20),GPIO 26/27 都空出來。須搭配 KBD_SHARED_DATA
-option(KBD_CLK_ON_LCD_DC "595/165 CLOCK shares GPIO 20 with LCD D/C (GPIO 26 freed)" OFF)
+option(KBD_CLK_ON_LCD_DC "595/165 CLOCK shares GPIO 20 with LCD D/C (GPIO 26 freed)" ON)
 if(KBD_CLK_ON_LCD_DC)
     if(NOT KBD_SHARED_DATA)
         message(FATAL_ERROR "KBD_CLK_ON_LCD_DC requires KBD_SHARED_DATA=ON")
     endif()
     target_compile_definitions(retro_editor PRIVATE KBD_CLK_ON_LCD_DC=1)
+else()
+    target_compile_definitions(retro_editor PRIVATE KBD_CLK_ON_LCD_DC=0)
 endif()
+message(STATUS "keyboard wiring: KBD_SHARED_DATA=${KBD_SHARED_DATA} KBD_CLK_ON_LCD_DC=${KBD_CLK_ON_LCD_DC}")
 
 pico_add_extra_outputs(retro_editor)
 

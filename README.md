@@ -100,6 +100,8 @@ ninja -C build_offset
 `-DLOADER_PATH=<路徑>` 指定。`_standalone` 版需要 loader 先 build 過一次
 （要它的 `build/trampoline.uf2`）。
 
+> **2026-11 起預設改為現行接線**：下面兩項硬體修改已是標準配置（見 [rp2040-retro-handheld docs/HARDWARE.md §2.2](https://github.com/pondahai/rp2040-retro-handheld/blob/main/docs/HARDWARE.md)），兩個開關預設都是開。下文「要加參數才開」的敘述是當時的寫法；現在反過來，**舊接線的機器**才要關掉：`cmake ... -DKBD_SHARED_DATA=OFF -DKBD_CLK_ON_LCD_DC=OFF`。
+
 ### 鍵盤 QH 改接 GPIO 15 的硬體修改（`KBD_SHARED_DATA`）
 
 有些機器把 74HC165 的 QH 從 GPIO 27 改成**串 1 kΩ 接到 GPIO 15**，跟 595 的
