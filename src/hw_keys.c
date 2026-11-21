@@ -29,6 +29,7 @@ static inline void data_pin_to_out(void)
 static inline void data_pin_to_in(void)
 {
 #if KBD_SHARED_DATA
+    gpio_put(MTX_PIN_DATA_OUT, 0);      /* 先主動放電至 0V，避免未接鍵盤時殘留 Row 0 高電位 */
     gpio_set_dir(MTX_PIN_DATA_IN, GPIO_IN);
     sleep_us(1);    /* 等 QH 經 1 kΩ 把腳位拉到位 */
 #endif
@@ -76,9 +77,9 @@ void hw_keys_init(void)
     gpio_init(MTX_PIN_DATA_IN);
     gpio_set_dir(MTX_PIN_DATA_IN, GPIO_IN);
 #if KBD_SHARED_DATA
-    /* 預設下拉約 50 kΩ 會跟 1 kΩ 分壓,關掉。
-     * 先把輸出暫存器設 0,之後切成輸出時才不會冒出殘留的 1。 */
-    gpio_disable_pulls(MTX_PIN_DATA_IN);
+    /* 啟用內部下拉(~50 kΩ，即使並聯外部 47 kΩ 下拉，與 1 kΩ 分壓仍有 ~3.17 V)，
+     * 防止未接鍵盤硬體時浮接誤觸；先將輸出暫存器設 0，切換輸出時不冒出殘留的 1。 */
+    gpio_pull_down(MTX_PIN_DATA_IN);
     gpio_put(MTX_PIN_DATA_OUT, 0);
 
     /* 27 已割線、留給 ADC:輸入、不上下拉,不要再當輸出 */
